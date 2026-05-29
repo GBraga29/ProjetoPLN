@@ -7,8 +7,8 @@
 # Prof. Tiago A. Almeida
 #
 #
-# Nome: 
-# RA:
+# Nome: Eric Lopes, Guilherme Braga, Guilherme Saggion
+# RA: 822873, 823161, 823159
 # ################################################################
 
 # Arquivo com todas as funcoes e codigos referentes a analise exploratoria
