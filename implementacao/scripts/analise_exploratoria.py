@@ -65,7 +65,7 @@ def filtrar_categorias_validas(train_df):
 # Inspeção geral
 
 def exibir_estrutura(train_df, test_df):
-    """Mostra head, dtypes e info dos conjuntos."""
+    # Mostra head, dtypes e info dos conjuntos.
     print("=== Primeiras linhas — treino ===")
     display(train_df.head())
 
@@ -77,7 +77,7 @@ def exibir_estrutura(train_df, test_df):
 
 
 def verificar_qualidade(train_df, test_df):
-    """Exibe valores ausentes, duplicatas e contagem de categorias."""
+    # Exibe valores ausentes, duplicatas e contagem de categorias.
     print("=== Valores ausentes — treino ===")
     print(train_df.isnull().sum())
 
