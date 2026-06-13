@@ -11,37 +11,6 @@
 # ################################################################
 
 # Arquivo com todas as funcoes e codigos referentes ao preprocessamento.
-#
-# ETAPAS COBERTAS (exigidas no enunciado):
-#   1. Limpeza de ruido de OCR ....... limpeza_completa / limpeza_lematizada
-#   2. Tokenizacao ................... tokenizar()
-#   3. Remocao de stopwords .......... limpeza_completa / limpeza_lematizada
-#   4. Lematizacao ................... lematizar() / limpeza_lematizada()
-#   5. Representacao computacional ... vetorizar_tfidf() (esparsa) +
-#                                      vetorizar_densa() (embeddings)
-#   6. Vetorizacao / dados prontos ... salvar_representacoes()
-#
-# NIVEIS DE LIMPEZA (base: Martins 2024 e Araujo et al. 2020 - dataset VICTOR):
-#
-#   limpeza_basica     — correcao de encoding (mojibake), extracao do wrapper
-#                        JSON, normalizacao unicode, minusculas, remocao de
-#                        URLs/e-mails/referencias de folhas.
-#                        Aplicada a TODOS os modelos.
-#
-#   limpeza_completa   — limpeza_basica + remocao de ruido OCR + remocao de
-#                        tokens numericos isolados + remocao de stopwords.
-#                        Aplicada aos modelos TF-IDF (SVM, Reg. Logistica).
-#
-#   limpeza_lematizada — limpeza_completa + lematizacao (spaCy pt). Reduz o
-#                        vocabulario agrupando flexoes (recursos -> recurso).
-#                        Variante para os modelos bag-of-words.
-#
-# Justificativa da divisao:
-#   Modelos neurais (Word2Vec, FastText, BERT, BiLSTM) aprendem relacoes
-#   contextuais — remover stopwords/lematizar eliminaria informacao
-#   sequencial importante (ex.: "nao provimento"). Modelos bag-of-words
-#   (TF-IDF) nao usam contexto, portanto stopwords sao puro ruido e a
-#   lematizacao reduz a esparsidade da matriz.
 
 import re
 import os
@@ -58,6 +27,9 @@ from collections import Counter
 
 import nltk
 from nltk.corpus import stopwords
+
+import spacy
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 
 # ---------------------------------------------------------------------------
@@ -888,3 +860,44 @@ def exibir_resumo(df_orig: pd.DataFrame, df_proc: pd.DataFrame):
         print(f'    Vocabulario    : {vocab:,} termos unicos')
 
     print(f'\n{"=" * 52}\n')
+
+try:
+    nlp = spacy.load('pt_core_news_sm')
+except OSError:
+    import spacy.cli
+    spacy.cli.download("pt_core_news_sm")
+    nlp = spacy.load('pt_core_news_sm')
+
+
+def extrair_atributos_pln(texto):
+    """
+    Realiza tarefas básicas de PLN utilizando POS Tagging e NER 
+    para gerar contagens estruturais e sintáticas do texto jurídico.
+    """
+    if not isinstance(texto, str) or not texto.strip():
+        return 0, 0, 0
+    
+    doc = nlp(texto)
+    
+    # NER: Contagem de Entidades Nomeadas extraídas do documento
+    num_entidades = len(doc.ents)
+    
+    # POS Tagging: Contagem de Substantivos (NOUN) e Verbos (VERB)
+    num_substantivos = sum(1 for token in doc if token.pos_ == "NOUN")
+    num_verbos = sum(1 for token in doc if token.pos_ == "VERB")
+    
+    return num_entidades, num_substantivos, num_verbos
+
+
+def gerar_representacao_tfidf(df_treino, df_teste, coluna, max_features=10000):
+    """
+    Constrói a representação computacional vetorial esparsa (TF-IDF)
+    utilizando combinações de unigramas e bigramas.
+    """
+    tfidf = TfidfVectorizer(max_features=max_features, min_df=5, max_df=0.8, ngram_range=(1, 2))
+    
+    X_train_tfidf = tfidf.fit_transform(df_treino[coluna].fillna(''))
+    X_test_tfidf = tfidf.transform(df_teste[coluna].fillna(''))
+    
+    return X_train_tfidf, X_test_tfidf, tfidf
+
