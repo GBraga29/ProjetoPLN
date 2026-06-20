@@ -967,7 +967,7 @@ def preparar_datasets_bert(bert_batch=16):
         return tokenizer(
             examples["text"],
             truncation=True,
-            max_length=MAX_LEN_BERT,
+            max_length=128,
             padding=False,
         )
 
@@ -1018,7 +1018,7 @@ def _make_weighted_trainer_class(class_weights_nn, device):
 
 
 def treinar_lora(tok_ds, tokenizer, data_collator,
-                 class_weights_nn, device, bert_batch=16):
+                 class_weights_nn, device, bert_batch=16, max_train_samples=None):
     """
     Configura e treina o BERTimbau com PEFT/LoRA (r=16, target: query+value).
 
@@ -1034,6 +1034,12 @@ def treinar_lora(tok_ds, tokenizer, data_collator,
     from peft import LoraConfig, get_peft_model, TaskType
 
     TRANS_DIR.mkdir(exist_ok=True)
+
+    train_dataset = tok_ds["train"]
+    if max_train_samples is not None and max_train_samples < len(train_dataset):
+        train_dataset = train_dataset.shuffle(seed=SEED).select(range(max_train_samples))
+        print(f"Usando subset de treino: {max_train_samples:,} exemplos "
+              f"(de {len(tok_ds['train']):,} originais)")
 
     base_model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME,
@@ -1055,32 +1061,34 @@ def treinar_lora(tok_ds, tokenizer, data_collator,
 
     args = TrainingArguments(
         output_dir=str(TRANS_DIR / "lora_checkpoints"),
-        num_train_epochs=5,
+        num_train_epochs=2,
         per_device_train_batch_size=bert_batch,
         per_device_eval_batch_size=bert_batch * 2,
         learning_rate=2e-4,
         weight_decay=0.01,
         warmup_ratio=0.1,
         lr_scheduler_type="cosine",
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
+        save_total_limit=1,
         load_best_model_at_end=True,
         metric_for_best_model="f1_macro",
         greater_is_better=True,
         logging_steps=50,
         fp16=(device == "cuda"),
+        dataloader_num_workers=2,
         seed=SEED,
         report_to="none",
     )
     trainer = WeightedTrainer(
         model=lora_model,
         args=args,
-        train_dataset=tok_ds["train"],
+        train_dataset=train_dataset,
         eval_dataset=tok_ds["val"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics_bert,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=1)],
     )
     print("Iniciando treinamento LoRA...")
     t0 = time.time()
@@ -1142,15 +1150,8 @@ def salvar_lora(lora_model, tokenizer):
 
 
 def treinar_finetuning_completo(tok_ds, tokenizer, data_collator,
-                                class_weights_nn, device, bert_batch=16):
-    """
-    Executa o full fine-tuning do BERTimbau somente se houver GPU disponível.
-    Caso contrário, retorna None e imprime aviso.
-
-    Retorna
-    -------
-    trainer_ft : WeightedTrainer ou None.
-    """
+                                class_weights_nn, device, bert_batch=16,
+                                max_train_samples=None):
     if device != "cuda":
         print("GPU não disponível — pulando full fine-tuning.")
         return None
@@ -1163,6 +1164,12 @@ def treinar_finetuning_completo(tok_ds, tokenizer, data_collator,
     TRANS_DIR.mkdir(exist_ok=True)
     WeightedTrainer = _make_weighted_trainer_class(class_weights_nn, device)
 
+    train_dataset = tok_ds["train"]
+    if max_train_samples is not None and max_train_samples < len(train_dataset):
+        train_dataset = train_dataset.shuffle(seed=SEED).select(range(max_train_samples))
+        print(f"Usando subset de treino: {max_train_samples:,} exemplos "
+              f"(de {len(tok_ds['train']):,} originais)")
+
     ft_model = AutoModelForSequenceClassification.from_pretrained(
         MODEL_NAME,
         num_labels=NUM_CLASSES,
@@ -1172,31 +1179,33 @@ def treinar_finetuning_completo(tok_ds, tokenizer, data_collator,
     )
     args = TrainingArguments(
         output_dir=str(TRANS_DIR / "ft_checkpoints"),
-        num_train_epochs=4,
+        num_train_epochs=2,                  # era 4
         per_device_train_batch_size=bert_batch,
         per_device_eval_batch_size=bert_batch * 2,
         learning_rate=2e-5,
         weight_decay=0.01,
         warmup_ratio=0.1,
         lr_scheduler_type="linear",
-        evaluation_strategy="epoch",
+        eval_strategy="epoch",
         save_strategy="epoch",
+        save_total_limit=1,
         load_best_model_at_end=True,
         metric_for_best_model="f1_macro",
         greater_is_better=True,
         fp16=True,
+        dataloader_num_workers=2,
         seed=SEED,
         report_to="none",
     )
     trainer_ft = WeightedTrainer(
         model=ft_model,
         args=args,
-        train_dataset=tok_ds["train"],
+        train_dataset=train_dataset,
         eval_dataset=tok_ds["val"],
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics_bert,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=2)],
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=1)],
     )
     print("Iniciando full fine-tuning...")
     t0 = time.time()
@@ -1398,3 +1407,29 @@ def exibir_resumo_final(ranking, nomes_arquivos):
     ranking_final.to_csv(DATA_DIR / "ranking_final.csv", index=False)
     print(f"\nranking_final.csv salvo em {DATA_DIR}")
     return ranking_final_idx
+
+def avaliar_modelo_nn(nome, model, X_val, y_val):
+    """
+    Calcula F1-macro, F1-weighted e Acurácia no conjunto de validação,
+    imprime o classification_report e plota a matriz de confusão.
+
+    Retorna
+    -------
+    dict com métricas para a tabela comparativa.
+    """
+    y_pred = np.argmax(model.predict(X_val, verbose=0), axis=1)
+    f1m = f1_score(y_val, y_pred, average="macro",    zero_division=0)
+    f1w = f1_score(y_val, y_pred, average="weighted", zero_division=0)
+    acc = (y_val == y_pred).mean()
+
+    print(f"  {nome:<36} F1-macro={f1m:.4f}  F1-weighted={f1w:.4f}  acc={acc:.4f}")
+    print(f"\nRelatório de classificação — {nome} (hold-out):")
+    print(classification_report(y_val, y_pred,
+                                target_names=CLASS_LABELS, zero_division=0))
+
+    return {
+        "Modelo"             : nome,
+        "F1-Macro (media)"   : f1m,
+        "F1-Weighted (media)": f1w,
+        "Acuracia (media)"   : acc,
+    }
