@@ -18,16 +18,13 @@ import json
 import unicodedata
 import warnings
 warnings.filterwarnings('ignore')
-
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import Counter
-
 import nltk
 from nltk.corpus import stopwords
-
 import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
 
@@ -41,7 +38,7 @@ CORES     = ['#4C72B0', '#DD8452', '#55A868', '#C44E52', '#8172B2']
 
 
 # ---------------------------------------------------------------------------
-# Expressoes regulares (compiladas uma unica vez)
+# Expressoes regulares
 # ---------------------------------------------------------------------------
 
 _RE_URL    = re.compile(r'https?://\S+|www\.\S+', re.IGNORECASE)
@@ -50,12 +47,7 @@ _RE_FOLHA  = re.compile(r'\b(f\.?l\.?s?\.?|p\.?g\.?)\s*\d*\b', re.IGNORECASE)
 _RE_RUIDO  = re.compile(r'[^a-z\u00e0-\u00fc\s\d_]')
 _RE_NUMERO_PURO = re.compile(r'^\d+$')
 _RE_ESPACOS = re.compile(r'\s+')
-
-# Tokens especiais do AILAB (LEI_102, ARTIGO_195) — nao devem ser lematizados.
 _RE_ESPECIAL = re.compile(r'^(lei|artigo)_\d+$', re.IGNORECASE)
-
-# Tokenizador: sequencias de letras (com acento) opcionalmente seguidas de
-# _digitos. Captura "recurso" e tambem "artigo_543"/"lei_8080" como token unico.
 _RE_TOKEN = re.compile(r'[a-z\u00e0-\u00fc]+(?:_\d+)?', re.IGNORECASE)
 
 
@@ -66,7 +58,7 @@ _RE_TOKEN = re.compile(r'[a-z\u00e0-\u00fc]+(?:_\d+)?', re.IGNORECASE)
 def _carregar_stopwords() -> set:
     """
     Carrega stopwords do NLTK para portugues e adiciona termos
-    especificos do dominio juridico sem valor discriminativo.
+    especificos do dominio juridico sem valor discriminativo
     """
     try:
         sw = set(stopwords.words('portuguese'))
@@ -119,7 +111,6 @@ def _extrair_corpo(texto: str) -> str:
 def _corrigir_encoding(texto: str) -> str:
     """
     Corrige mojibake do conjunto de treino (UTF-8 lido como latin-1).
-    O conjunto de teste ja esta correto; a funcao trata ambos sem erro.
     """
     try:
         return texto.encode('latin-1').decode('utf-8')
@@ -223,17 +214,6 @@ def tokenizar(texto: str) -> list:
 # ===========================================================================
 # 4. LEMATIZACAO
 # ===========================================================================
-#
-# Estrategia principal: spaCy (modelo pt_core_news_sm), recomendado no
-# enunciado. Caso o modelo nao esteja instalado, ha fallback automatico para
-# 'simplemma' (lematizador leve, offline), de modo que o pipeline rode em
-# qualquer ambiente.
-#
-#   Instalacao do modelo spaCy (recomendado):
-#       python -m spacy download pt_core_news_sm
-#   Fallback (opcional):
-#       pip install simplemma
-
 _LEMATIZADOR = None
 _MODO_LEMA   = None
 
@@ -246,8 +226,6 @@ def _carregar_lematizador():
 
     try:
         import spacy
-        # parser e ner sao desnecessarios para lematizar -> mais rapido.
-        # O tagger/morphologizer e MANTIDO porque o lematizador pt depende dele.
         _LEMATIZADOR = spacy.load('pt_core_news_sm', disable=['parser', 'ner'])
         _LEMATIZADOR.max_length = 2_000_000   # textos juridicos podem ser longos
         _MODO_LEMA   = 'spacy'
@@ -267,7 +245,6 @@ def _carregar_lematizador():
 def usar_lematizador(modo: str = 'auto'):
     """
     Força o lematizador a ser usado. Útil para acelerar o pipeline.
-
       'auto'      : spaCy se disponível, senão simplemma (padrao).
       'spacy'     : qualidade maior, mais lento.
       'simplemma' : lookup em dicionario, MUITO mais rapido (offline).
@@ -320,8 +297,6 @@ def _lematizar_lote(textos, batch_size: int = 256, n_process: int = 1) -> list:
             for doc in _LEMATIZADOR.pipe(textos, batch_size=batch_size,
                                          n_process=n_process)
         ]
-
-    # simplemma: lookup token a token (ja e rapido)
     return [lematizar(t) for t in textos]
 
 
@@ -351,14 +326,13 @@ def lematizar(texto: str) -> str:
         for tok in _LEMATIZADOR(texto):
             forma = tok.text
             if _RE_ESPECIAL.match(forma):
-                saida.append(forma)              # preserva artigo_X / lei_X
+                saida.append(forma)
             elif tok.is_space or tok.is_punct:
                 continue
             else:
                 saida.append(tok.lemma_.lower())
         return ' '.join(saida)
 
-    # Fallback simplemma (lematiza token a token)
     saida = []
     for t in tokenizar(texto):
         if _RE_ESPECIAL.match(t):
@@ -385,7 +359,6 @@ def _pos_filtro_lema(texto: str) -> str:
 def limpeza_lematizada(texto: str) -> str:
     """
     Variante da limpeza_completa que adiciona LEMATIZACAO (um documento).
-
     Ordem das etapas
     -----------------
     1. limpeza_basica (contexto preservado -> melhor qualidade do lema)
@@ -448,7 +421,6 @@ def preprocessar(df: pd.DataFrame,
     print(f'{"─" * 50}')
 
     if nivel == 'lematizada':
-        # Caminho RAPIDO: limpa em vetor, lematiza em LOTE, filtra em vetor.
         base  = df[coluna].apply(limpeza_basica).tolist()
         lemas = _lematizar_lote(base, batch_size=batch_size, n_process=n_process)
         df[col_saida] = [_pos_filtro_lema(t) for t in lemas]
@@ -879,10 +851,8 @@ def extrair_atributos_pln(texto):
     
     doc = nlp(texto)
     
-    # NER: Contagem de Entidades Nomeadas extraídas do documento
     num_entidades = len(doc.ents)
     
-    # POS Tagging: Contagem de Substantivos (NOUN) e Verbos (VERB)
     num_substantivos = sum(1 for token in doc if token.pos_ == "NOUN")
     num_verbos = sum(1 for token in doc if token.pos_ == "VERB")
     
