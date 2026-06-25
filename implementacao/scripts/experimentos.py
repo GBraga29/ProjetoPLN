@@ -20,12 +20,10 @@ import pickle
 import warnings
 from collections import Counter
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 from sklearn.metrics import (
     classification_report, confusion_matrix,
     f1_score, make_scorer,
@@ -34,7 +32,6 @@ from sklearn.model_selection import (
     GridSearchCV, StratifiedKFold, cross_validate, train_test_split,
 )
 from sklearn.utils.class_weight import compute_class_weight
-
 warnings.filterwarnings("ignore")
 
 # ─── 0. Configuração global ───────────────────────────────────────────────────
@@ -336,16 +333,16 @@ def treinar_regressao_logistica(X_train, y_train, cv_inner=3):
     gs = GridSearchCV(
         LogisticRegression(
             class_weight="balanced", 
-            solver="lbfgs",       # MUDANÇA 1: lbfgs é muito mais rápido para L2 + TF-IDF
+            solver="lbfgs",
             max_iter=1000, 
             random_state=SEED, 
-            n_jobs=1              # MUDANÇA 2: Deixa o paralelismo para o GridSearchCV
+            n_jobs=1
         ),
         {"C": [0.01, 0.1, 1.0, 5.0, 10.0], "penalty": ["l2"]},
         cv=StratifiedKFold(n_splits=cv_inner, shuffle=True, random_state=SEED),
         scoring=scorer_f1, 
-        n_jobs=-1,                # MUDANÇA 3: Roda as diferentes combinações em paralelo
-        verbose=1,                # BÔNUS: Adicionado verbose=1 para você ver o progresso (barrinha) e não achar que travou
+        n_jobs=-1,
+        verbose=1,
     )
     
     gs.fit(X_train, y_train)
@@ -353,12 +350,11 @@ def treinar_regressao_logistica(X_train, y_train, cv_inner=3):
     print(f"  Melhores params : {gs.best_params_}")
     print(f"  F1-macro (CV)   : {gs.best_score_:.4f}")
 
-    # Constrói o modelo final com os melhores parâmetros
     best_model = LogisticRegression(
         C=gs.best_params_["C"], 
         penalty="l2",
         class_weight="balanced", 
-        solver="lbfgs",           # Lembre-se de manter o mesmo solver aqui
+        solver="lbfgs",
         max_iter=1000, 
         random_state=SEED, 
         n_jobs=-1,
@@ -557,7 +553,6 @@ def carregar_dados_neurais(word2idx, max_len=300):
     train_basico = pd.read_csv(DATA_DIR / "train_basico.csv")
     test_basico  = pd.read_csv(DATA_DIR / "test_basico.csv")
 
-    # --- TRAVA DE SEGURANÇA ---
     train_basico = train_basico[train_basico["Category"] != -1].copy()
 
     X_seq_train = encode_e_pad(train_basico["Body_basica"], word2idx, max_len)
@@ -595,8 +590,6 @@ def carregar_embedding_matrix(word2idx, vocab_size, embed_dim=100):
         print("Modelo W2V não encontrado — treinando on-the-fly...")
         train_basico = pd.read_csv(DATA_DIR / "train_basico.csv")
         
-        # --- TRAVA DE SEGURANÇA ---
-        # Remove textos não rotulados para não enviesar o embedding
         train_basico = train_basico[train_basico["Category"] != -1].copy()
         
         sentences    = [str(t).split() for t in train_basico["Body_basica"].fillna("")]
@@ -795,19 +788,15 @@ def treinar_modelo_nn(model, X_tr, y_tr, X_val, y_val,
     import tensorflow as tf
     from tensorflow.keras import callbacks
 
-    # 1. Criação de Pipeline de Dados Otimizado (Zero gargalo de memória)
     AUTOTUNE = tf.data.AUTOTUNE
     
-    # Dataset de treino com embaralhamento e prefetch
     train_ds = tf.data.Dataset.from_tensor_slices((X_tr, y_tr))
     train_ds = train_ds.shuffle(buffer_size=len(X_tr), seed=42)
     train_ds = train_ds.batch(batch_size).prefetch(AUTOTUNE)
     
-    # Dataset de validação
     val_ds = tf.data.Dataset.from_tensor_slices((X_val, y_val))
     val_ds = val_ds.batch(batch_size).prefetch(AUTOTUNE)
 
-    # 2. Configuração de Callbacks
     cbs = [
         callbacks.EarlyStopping(
             monitor="val_loss", patience=patience_stop,
@@ -821,14 +810,13 @@ def treinar_modelo_nn(model, X_tr, y_tr, X_val, y_val,
     
     t0 = time.time()
     
-    # 3. Treinamento
     history = model.fit(
-        train_ds,                      # Agora passamos o pipeline inteiro
+        train_ds,
         validation_data=val_ds,        
         epochs=epochs,
         class_weight=class_weights,
         callbacks=cbs,
-        verbose=2,                     # verbose=2 retira a animação pesada do notebook
+        verbose=2,
     )
     
     tempo = time.time() - t0
@@ -942,8 +930,6 @@ def preparar_datasets_bert(bert_batch=16):
     train_basico = pd.read_csv(DATA_DIR / "train_basico.csv")
     test_basico  = pd.read_csv(DATA_DIR / "test_basico.csv")
 
-    # --- TRAVA DE SEGURANÇA ---
-    # Garante que o Transformer não receba rótulos inválidos
     train_basico = train_basico[train_basico["Category"] != -1].copy()
 
     df_tr, df_val = train_test_split(
@@ -1299,11 +1285,8 @@ def plotar_ranking_geral(todos_resultados: pd.DataFrame):
 
 def gerar_submissao_final(
     nome_arquivo, ranking, posicao,
-    # Modelos clássicos
     X_test_tfidf=None, ids_teste=None,
-    # Modelos profundos
     bilstm_model=None, cnn_model=None, X_seq_test=None,
-    # Transformers
     trainer_lora=None, tok_ds=None,
 ):
     """

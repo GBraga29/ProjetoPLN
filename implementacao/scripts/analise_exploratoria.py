@@ -16,17 +16,13 @@
 import re
 import warnings
 from collections import Counter
-
 import matplotlib.pyplot as plt
 import nltk
 import pandas as pd
 import seaborn as sns
 from nltk.corpus import stopwords
-
 warnings.filterwarnings("ignore")
 nltk.download("stopwords", quiet=True)
-
-# Constantes
 
 CATEGORY_MAP = {
     -1: "Desconhecido",
@@ -40,9 +36,6 @@ CATEGORY_MAP = {
 CATEGORY_ORDER = list(CATEGORY_MAP.values())
 COLORS = sns.color_palette("Set2", len(CATEGORY_MAP))
 STOP_WORDS_PT = set(stopwords.words("portuguese"))
-
-
-# Carregamento
 
 def carregar_dados(path_train, path_test, path_submission):
     train_df = pd.read_csv(path_train, encoding='utf-8')
@@ -61,11 +54,7 @@ def filtrar_categorias_validas(train_df):
     df["Category_name"] = df["Category"].map(CATEGORY_MAP)
     return df
 
-
-# Inspeção geral
-
 def exibir_estrutura(train_df, test_df):
-    # Mostra head, dtypes e info dos conjuntos.
     print("=== Primeiras linhas — treino ===")
     display(train_df.head())
 
@@ -77,7 +66,6 @@ def exibir_estrutura(train_df, test_df):
 
 
 def verificar_qualidade(train_df, test_df):
-    # Exibe valores ausentes, duplicatas e contagem de categorias.
     print("=== Valores ausentes — treino ===")
     print(train_df.isnull().sum())
 
@@ -92,11 +80,7 @@ def verificar_qualidade(train_df, test_df):
     print("\n=== Categorias no treino ===")
     print(train_df["Category"].value_counts().sort_index())
 
-
-# Distribuição de classes
-
 def plotar_distribuicao_classes(train_valid, save_path="figs/distribuicao_classes.png"):
-    # Barra + pizza com distribuição das categorias."""
     class_counts = (
         train_valid["Category_name"].value_counts().reindex(CATEGORY_ORDER)
     )
@@ -141,11 +125,7 @@ def plotar_distribuicao_classes(train_valid, save_path="figs/distribuicao_classe
 
     return class_counts, class_pct
 
-
-# Comprimento dos textos
-
 def adicionar_metricas_comprimento(df):
-    # Adiciona colunas num_chars, num_words e num_sentences ao DataFrame.
     df = df.copy()
     df["num_chars"] = df["Body"].str.len()
     df["num_words"] = df["Body"].str.split().str.len()
@@ -154,7 +134,6 @@ def adicionar_metricas_comprimento(df):
 
 
 def plotar_comprimento_textos(train_valid, save_path="figs/comprimento_textos.png"):
-    # Estatísticas descritivas + boxplot + histograma de comprimento.
     print("=== Estatísticas de comprimento dos textos ===")
     display(
         train_valid[["num_chars", "num_words", "num_sentences"]].describe().round(1)
@@ -196,17 +175,12 @@ def plotar_comprimento_textos(train_valid, save_path="figs/comprimento_textos.pn
         .reindex(CATEGORY_ORDER)
     )
 
-
-# Vocabulário e frequência de termos
-
 def tokenizar_simples(texto):
-    # Tokenização básica: lowercase, apenas letras ≥3 chars, sem stopwords.
     tokens = re.findall(r"\b[a-záéíóúâêîôûãõàèìòùç]{3,}\b", str(texto).lower())
     return [t for t in tokens if t not in STOP_WORDS_PT]
 
 
 def calcular_frequencia_global(train_valid):
-    # Retorna Counter com todos os tokens do corpus de treinamento.
     todos_tokens = []
     for texto in train_valid["Body"]:
         todos_tokens.extend(tokenizar_simples(texto))
@@ -217,7 +191,6 @@ def calcular_frequencia_global(train_valid):
 
 
 def plotar_top_termos_global(freq_global, n=20, save_path="figs/top20_termos.png"):
-    # Gráfico de barras horizontais com os N termos mais frequentes.
     top_n = freq_global.most_common(n)
     termos, freqs = zip(*top_n)
 
@@ -239,7 +212,6 @@ def plotar_top_termos_global(freq_global, n=20, save_path="figs/top20_termos.png
 
 
 def plotar_top_termos_por_categoria(train_valid, n=10, save_path="figs/top10_termos_categoria.png"):
-    # Grid com os N termos mais frequentes de cada categoria.
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
     axes = axes.flatten()
 
@@ -264,11 +236,7 @@ def plotar_top_termos_por_categoria(train_valid, n=10, save_path="figs/top10_ter
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
 
-
-# Exemplos por categoria
-
 def exibir_exemplos_por_categoria(train_valid, n_chars=400):
-    # Imprime um trecho de texto de exemplo para cada categoria.
     print("=== Exemplos de textos por categoria ===\n")
     for cat_id, cat_name in CATEGORY_MAP.items():
         subset = train_valid[train_valid["Category"] == cat_id]
@@ -279,11 +247,7 @@ def exibir_exemplos_por_categoria(train_valid, n_chars=400):
         print(str(exemplo)[:n_chars].strip())
         print("...\n")
 
-
-# Ruído de OCR
-
 def calcular_metricas_ruido(texto):
-    # Retorna proporções de caracteres especiais, dígitos e maiúsculas.
     texto = str(texto)
     n = len(texto)
     if n == 0:
@@ -297,7 +261,6 @@ def calcular_metricas_ruido(texto):
 
 
 def adicionar_metricas_ruido(df):
-    # Adiciona colunas prop_especiais, prop_digitos e prop_maiusculas ao DataFrame.
     df = df.copy()
     metricas = df["Body"].apply(calcular_metricas_ruido)
     df[["prop_especiais", "prop_digitos", "prop_maiusculas"]] = pd.DataFrame(
@@ -307,7 +270,6 @@ def adicionar_metricas_ruido(df):
 
 
 def plotar_ruido_textual(train_valid, save_path="figs/ruido_textual.png"):
-    # Tabela resumo + boxplots de métricas de ruído por categoria.
     print("=== Métricas de ruído textual por categoria ===")
     display(
         train_valid.groupby("Category_name")[
@@ -345,9 +307,6 @@ def plotar_ruido_textual(train_valid, save_path="figs/ruido_textual.png"):
     plt.tight_layout()
     plt.savefig(save_path, dpi=150, bbox_inches="tight")
     plt.show()
-
-
-# Resumo final
 
 def exibir_resumo(train_valid, test_df, freq_global, class_counts, class_pct):
     sep = "=" * 60
